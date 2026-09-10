@@ -30,6 +30,7 @@ os.environ.setdefault(
 
 from pathlib import Path
 import hashlib
+import html
 import json
 import os
 import re
@@ -241,6 +242,45 @@ CUSTOM_CSS = """
     border-radius: 10px;
     margin-bottom: .55rem;
 }
+
+.adaptive-kpi {
+    min-height: 92px;
+    width: 100%;
+}
+
+.adaptive-kpi-label {
+    font-size: 0.82rem;
+    line-height: 1.2;
+    margin-bottom: 0.35rem;
+    opacity: 0.82;
+}
+
+.adaptive-kpi-value {
+    line-height: 1.08;
+    font-weight: 400;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: break-word;
+    word-break: normal;
+    min-height: 2.2em;
+}
+
+.adaptive-kpi-value.kpi-xl {
+    font-size: 2rem;
+}
+
+.adaptive-kpi-value.kpi-lg {
+    font-size: 1.72rem;
+}
+
+.adaptive-kpi-value.kpi-md {
+    font-size: 1.45rem;
+}
+
+.adaptive-kpi-value.kpi-sm {
+    font-size: 1.20rem;
+}
 </style>
 """
 
@@ -248,6 +288,40 @@ st.markdown(
     CUSTOM_CSS,
     unsafe_allow_html=True,
 )
+
+
+def kpi_font_class(value) -> str:
+    text = str(value or "")
+    n = len(text)
+
+    if n <= 10:
+        return "kpi-xl"
+    if n <= 16:
+        return "kpi-lg"
+    if n <= 24:
+        return "kpi-md"
+    return "kpi-sm"
+
+
+def render_adaptive_kpi(column, label, value):
+    display_value = str(value) if value not in (None, "") else "—"
+
+    safe_label = html.escape(str(label))
+    safe_value = html.escape(display_value)
+    size_class = kpi_font_class(display_value)
+
+    with column:
+        st.markdown(
+            f"""
+            <div class="adaptive-kpi">
+                <div class="adaptive-kpi-label">{safe_label}</div>
+                <div class="adaptive-kpi-value {size_class}">
+                    {safe_value}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def input_fingerprint(
@@ -1026,41 +1100,49 @@ main_cols = st.columns(
     6
 )
 
-main_cols[0].metric(
+render_adaptive_kpi(
+    main_cols[0],
     "Autoridad",
     authority,
 )
 
-main_cols[1].metric(
+render_adaptive_kpi(
+    main_cols[1],
     "Denominación",
     denomination,
 )
 
-main_cols[2].metric(
+render_adaptive_kpi(
+    main_cols[2],
     "Material",
     material,
 )
 
-main_cols[3].metric(
+render_adaptive_kpi(
+    main_cols[3],
     "Ceca",
     mint,
 )
 
-main_cols[4].metric(
+render_adaptive_kpi(
+    main_cols[4],
     "Cronología",
     date_label,
 )
 
-main_cols[5].metric(
+confidence_value = (
+    f"{overall_label_es}"
+    + (
+        f" · {percent_label(overall_conf)}"
+        if overall_conf is not None
+        else ""
+    )
+)
+
+render_adaptive_kpi(
+    main_cols[5],
     "Confianza interna",
-    (
-        f"{overall_label_es}"
-        + (
-            f" · {percent_label(overall_conf)}"
-            if overall_conf is not None
-            else ""
-        )
-    ),
+    confidence_value,
 )
 
 st.caption(
