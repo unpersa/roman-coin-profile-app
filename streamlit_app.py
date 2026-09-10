@@ -970,8 +970,8 @@ if analyze_clicked:
                 in compact_error
             ):
                 st.error(
-                    "Cuota diaria gratuita de Gemini 3.7 Flash agotada. "
-                    "No se realizará un reintento automático."
+                    "Se ha alcanzado la cuota diaria gratuita de Gemini. "
+                    "No se realizarán más intentos automáticos."
                 )
 
             elif (
