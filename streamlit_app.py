@@ -24,7 +24,17 @@ os.environ.setdefault(
 
 os.environ.setdefault(
     "ROMAN_COIN_GEMINI_MAX_ATTEMPTS",
+    "3",
+)
+
+os.environ.setdefault(
+    "ROMAN_COIN_GEMINI_FALLBACK_MAX_ATTEMPTS",
     "1",
+)
+
+os.environ.setdefault(
+    "GEMINI_FALLBACK_MODEL",
+    "gemini-3.6-flash",
 )
 
 
@@ -83,6 +93,7 @@ os.environ.setdefault(
 )
 
 from roman_coin_app.config import get_secret, Settings
+from roman_coin_app.cache_policy import should_persist_profile_result
 from roman_coin_app.profile_factory import (
     build_profile_pipeline,
 )
@@ -359,6 +370,11 @@ def input_fingerprint(
         + Settings.from_environment().gemini_model.encode(
             "utf-8"
         )
+    )
+
+    h.update(
+        b"::fallback-model::"
+        + Settings.from_environment().gemini_fallback_model.encode("utf-8")
     )
 
     return h.hexdigest()
@@ -670,13 +686,14 @@ with st.sidebar:
     # MANUAL_GEMINI_37_MODEL_BADGE
     settings_ui = Settings.from_environment()
 
+    st.caption(f"Modelo principal: {settings_ui.gemini_model}")
     st.caption(
-        "Modelo multimodal: "
-        + settings_ui.gemini_model
+        "Reintentos ante saturación: hasta "
+        + os.getenv("ROMAN_COIN_GEMINI_MAX_ATTEMPTS", "3")
     )
-
     st.caption(
-        "Modo de prueba: 1 intento por análisis"
+        "Respaldo ante 503: "
+        + (settings_ui.gemini_fallback_model or "deshabilitado")
     )
     st.header(
         "Configuración"
@@ -909,10 +926,11 @@ if analyze_clicked:
                         result_obj.to_dict()
                     )
 
-                save_cached_result(
-                    current_hash,
-                    result,
-                )
+                if should_persist_profile_result(result):
+                    save_cached_result(
+                        current_hash,
+                        result,
+                    )
 
             st.session_state[
                 "latest_result"
@@ -926,6 +944,13 @@ if analyze_clicked:
                 "Ficha generada correctamente.",
                 icon="✅",
             )
+
+            if result.get("fallback_used", False):
+                st.info(
+                    f"Gemini {settings_ui.gemini_model} estaba temporalmente "
+                    "saturado. El análisis se ha realizado con "
+                    f"{result.get('model_used', settings_ui.gemini_fallback_model)}."
+                )
 
         except Exception as exc:
             # MANUAL_GEMINI_37_ERROR_MESSAGES
@@ -945,8 +970,8 @@ if analyze_clicked:
                 in compact_error
             ):
                 st.error(
-                    "Cuota diaria gratuita de Gemini 3.7 Flash agotada. "
-                    "No se realizará un reintento automático."
+                    "Se ha alcanzado la cuota diaria gratuita de Gemini. "
+                    "No se realizarán más intentos automáticos."
                 )
 
             elif (
@@ -955,9 +980,9 @@ if analyze_clicked:
                 "unavailable" in error_lower
             ):
                 st.warning(
-                    "Gemini 3.7 Flash está temporalmente saturado "
-                    "o no disponible (503). No se realizará un "
-                    "reintento automático."
+                    "Los modelos de Gemini están temporalmente saturados o no "
+                    "disponibles. Se han agotado los reintentos automáticos. "
+                    "Inténtalo de nuevo dentro de unos minutos."
                 )
 
             elif (

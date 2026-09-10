@@ -99,4 +99,6 @@ class RomanCoinProfilePipeline:
             exact_ric_type_id=None,
             warnings=warnings,
             errors=errors,
+            model_used=inference.provider,
+            fallback_used=inference.fallback_used,
         )

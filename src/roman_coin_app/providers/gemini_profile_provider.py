@@ -168,7 +168,11 @@ _GEMINI_RETRYABLE_STATUS_CODES = {
 
 # Funcionamiento normal del producto.
 # El smoke de NB34 lo baja temporalmente a 1.
-_GEMINI_OUTER_MAX_ATTEMPTS = max(1, int(os.getenv("ROMAN_COIN_GEMINI_MAX_ATTEMPTS", "1")))
+_GEMINI_OUTER_MAX_ATTEMPTS = max(1, int(os.getenv("ROMAN_COIN_GEMINI_MAX_ATTEMPTS", "3")))
+_GEMINI_FALLBACK_MAX_ATTEMPTS = max(
+    1,
+    int(os.getenv("ROMAN_COIN_GEMINI_FALLBACK_MAX_ATTEMPTS", "1")),
+)
 
 _GEMINI_RETRY_BASE_SECONDS = 10.0
 _GEMINI_RETRY_MAX_SECONDS = 30.0
@@ -276,19 +280,25 @@ def _is_explicit_daily_free_tier_quota(
 def _call_gemini_with_outer_retry(
     call,
     *args,
+    max_attempts=None,
     **kwargs,
 ):
     last_error = None
+    configured_attempts = (
+        _GEMINI_OUTER_MAX_ATTEMPTS
+        if max_attempts is None
+        else max(1, int(max_attempts))
+    )
 
     for attempt in range(
         1,
-        _GEMINI_OUTER_MAX_ATTEMPTS + 1,
+        configured_attempts + 1,
     ):
         try:
             if attempt > 1:
                 print(
                     "Gemini: reintento de aplicación "
-                    f"{attempt}/{_GEMINI_OUTER_MAX_ATTEMPTS}..."
+                    f"{attempt}/{configured_attempts}..."
                 )
 
             return call(
@@ -333,7 +343,7 @@ def _call_gemini_with_outer_retry(
             if (
                 not retryable
                 or attempt
-                >= _GEMINI_OUTER_MAX_ATTEMPTS
+                >= configured_attempts
             ):
                 if retryable:
                     print(
@@ -389,6 +399,19 @@ class _RetryingModelsProxy:
         return _call_gemini_with_outer_retry(
             self._models.generate_content,
             *args,
+            **kwargs,
+        )
+
+    def generate_content_with_attempts(
+        self,
+        *args,
+        max_attempts,
+        **kwargs,
+    ):
+        return _call_gemini_with_outer_retry(
+            self._models.generate_content,
+            *args,
+            max_attempts=max_attempts,
             **kwargs,
         )
 
@@ -474,26 +497,58 @@ class GeminiProfileProvider:
 
         started = time.perf_counter()
 
-        response = self.client.models.generate_content(
-            model=self.settings.gemini_model,
-            contents=[
-                PROFILE_SYSTEM_PROMPT,
-                "OBVERSE:",
-                self._part(
-                    obverse_bytes,
-                    obverse_mime,
-                ),
-                "REVERSE:",
-                self._part(
-                    reverse_bytes,
-                    reverse_mime,
-                ),
-                PROFILE_USER_PROMPT,
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
+        contents = [
+            PROFILE_SYSTEM_PROMPT,
+            "OBVERSE:",
+            self._part(
+                obverse_bytes,
+                obverse_mime,
             ),
+            "REVERSE:",
+            self._part(
+                reverse_bytes,
+                reverse_mime,
+            ),
+            PROFILE_USER_PROMPT,
+        ]
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
         )
+        used_model = self.settings.gemini_model
+        fallback_used = False
+
+        try:
+            response = self.client.models.generate_content(
+                model=used_model,
+                contents=contents,
+                config=config,
+            )
+        except Exception as primary_error:
+            fallback_model = self.settings.gemini_fallback_model
+            if not (
+                _gemini_error_status_code(primary_error) == 503
+                and fallback_model
+                and fallback_model != used_model
+            ):
+                raise
+
+            print(
+                f"Gemini principal {used_model} no disponible tras "
+                "agotar reintentos."
+            )
+            print(f"Intentando fallback {fallback_model}...")
+            used_model = fallback_model
+            try:
+                response = self.client.models.generate_content_with_attempts(
+                    model=used_model,
+                    contents=contents,
+                    config=config,
+                    max_attempts=_GEMINI_FALLBACK_MAX_ATTEMPTS,
+                )
+            except Exception as fallback_error:
+                raise fallback_error from primary_error
+            fallback_used = True
+            print(f"Gemini fallback completado con {used_model}.")
 
         raw_text = (
             response.text
@@ -632,7 +687,8 @@ class GeminiProfileProvider:
                     or ""
                 ),
             ),
-            provider=self.settings.gemini_model,
+            provider=used_model,
+            fallback_used=fallback_used,
             raw_text=raw_text,
             latency_seconds=(
                 time.perf_counter()

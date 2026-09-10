@@ -70,6 +70,7 @@ class ProfileInference:
     )
 
     provider: str = ""
+    fallback_used: bool = False
     raw_text: str = ""
     latency_seconds: float | None = None
 
@@ -189,12 +190,17 @@ class CoinProfileResult:
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
+    model_used: str = ""
+    fallback_used: bool = False
+
     schema_version: str = "roman_coin_profile_v2"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
             "status": self.status,
+            "model_used": self.model_used,
+            "fallback_used": self.fallback_used,
             "profile": self.profile.to_dict(),
             "exact_ric_status": self.exact_ric_status,
             "exact_ric_type_id": self.exact_ric_type_id,

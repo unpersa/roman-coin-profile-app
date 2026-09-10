@@ -10,6 +10,7 @@ class Settings:
     cache_dir: Path
     gemini_model: str
     gemini_verifier_model: str
+    gemini_fallback_model: str = "gemini-3.6-flash"
     top_k_candidates: int = 15
     rrf_k: int = 60
     hybrid_local_weight: float = 1.0
@@ -27,12 +28,17 @@ class Settings:
         cache_dir.mkdir(parents=True, exist_ok=True)
         model = os.getenv("GEMINI_VISION_MODEL", "gemini-3.7-flash")
         verifier = os.getenv("GEMINI_VERIFIER_MODEL", model)
+        fallback = os.getenv(
+            "GEMINI_FALLBACK_MODEL",
+            "gemini-3.6-flash",
+        ).strip()
         return cls(
             project_dir=project_dir,
             processed_dir=processed_dir,
             cache_dir=cache_dir,
             gemini_model=model,
             gemini_verifier_model=verifier,
+            gemini_fallback_model=fallback,
         )
 
 def get_secret(
